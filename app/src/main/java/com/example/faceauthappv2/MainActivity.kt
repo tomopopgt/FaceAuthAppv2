@@ -8,22 +8,34 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.Face
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,7 +54,6 @@ class MainActivity : ComponentActivity() {
 fun CameraScreen() {
     val context = LocalContext.current
 
-    // 1. カメラ権限を持っているかチェック
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -52,15 +63,11 @@ fun CameraScreen() {
         )
     }
 
-    // 2. 権限をリクエストするランチャー
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted ->
-            hasCameraPermission = granted
-        }
+        onResult = { granted -> hasCameraPermission = granted }
     )
 
-    // 初回起動時に権限ダイアログを出す
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
             launcher.launch(Manifest.permission.CAMERA)
@@ -68,7 +75,33 @@ fun CameraScreen() {
     }
 
     if (hasCameraPermission) {
-        CameraPreview()
+        // 💡 検出された顔の情報を保持する State
+        var detectedFaceCount by remember { mutableIntStateOf(0) }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            // カメラプレビュー
+            CameraPreview(
+                onFacesDetected = { faces ->
+                    detectedFaceCount = faces.size
+                }
+            )
+
+            // 💡 画面上部に近未来風ステータスバーを表示
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 40.dp, start = 16.dp, end = 16.dp)
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (detectedFaceCount > 0) "🟢 顔を検出中: ${detectedFaceCount}名" else "🔴 顔を探しています...",
+                    color = if (detectedFaceCount > 0) Color.Green else Color.Red,
+                    fontSize = 18.sp
+                )
+            }
+        }
     } else {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -80,7 +113,9 @@ fun CameraScreen() {
 }
 
 @Composable
-fun CameraPreview() {
+fun CameraPreview(
+    onFacesDetected: (List<Face>) -> Unit
+) {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     AndroidView(
@@ -91,12 +126,18 @@ fun CameraPreview() {
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
 
-                // 画面プレビューの設定
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
-                // 💡 顔認証用に前面カメラ（インカメラ）を指定
+                // 💡 ML Kit 顔検出解析（ImageAnalysis）の設定
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+
+                val cameraExecutor = Executors.newSingleThreadExecutor()
+                imageAnalysis.setAnalyzer(cameraExecutor, FaceAnalyzer(onFacesDetected))
+
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
 
                 try {
@@ -104,10 +145,11 @@ fun CameraPreview() {
                     cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         cameraSelector,
-                        preview
+                        preview,
+                        imageAnalysis // 👈 解析処理をカメラにセット！
                     )
                 } catch (e: Exception) {
-                    Log.e("CameraPreview", "カメラの起動に失敗しました", e)
+                    Log.e("CameraPreview", "カメラ設定エラー", e)
                 }
             }, ContextCompat.getMainExecutor(ctx))
 
@@ -115,4 +157,35 @@ fun CameraPreview() {
         },
         modifier = Modifier.fillMaxSize()
     )
+}
+
+/**
+ * 💡 カメラフレームを受け取って ML Kit で顔検出するアナライザークラス
+ */
+class FaceAnalyzer(
+    private val onFacesDetected: (List<Face>) -> Unit
+) : ImageAnalysis.Analyzer {
+
+    private val options = FaceDetectorOptions.Builder()
+        .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST) // 高速検出モード
+        .build()
+
+    private val detector = FaceDetection.getClient(options)
+
+    @OptIn(ExperimentalGetImage::class)
+    override fun analyze(imageProxy: ImageProxy) {
+        val mediaImage = imageProxy.image
+        if (mediaImage != null) {
+            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+            detector.process(image)
+                .addOnSuccessListener { faces ->
+                    onFacesDetected(faces)
+                }
+                .addOnCompleteListener {
+                    imageProxy.close() // フレーム解放（次のフレームを処理するため）
+                }
+        } else {
+            imageProxy.close()
+        }
+    }
 }
