@@ -66,12 +66,11 @@ data class DetectionData(
     val rotationDegrees: Int = 0
 )
 
-// 💡 ステップを3段階に増やしました！
 enum class AuthStep {
     WAITING,        // 顔検索
     CHECK_TURN,     // Step 1: 横を向く
     CHECK_FRONT,    // Step 2: 正面に戻る
-    CHECK_SMILE,    // Step 3: 笑顔を作る
+    CHECK_SMILE,    // Step 3: 笑顔を作る（首角度チェックなし）
     GRANTED         // 成功
 }
 
@@ -126,18 +125,25 @@ fun CameraScreen() {
 
         var currentStep by remember { mutableStateOf(AuthStep.WAITING) }
         var isProcessing by remember { mutableStateOf(false) }
+        var lostFaceFrames by remember { mutableIntStateOf(0) } // 顔ロスト猶予カウンター
 
         val currentFace = detectionData.faces.firstOrNull()
         val smileProb = currentFace?.smilingProbability ?: 0f
         val headAngleY = currentFace?.headEulerAngleY ?: 0f
 
-        // 💡 3段階の自然な自動進行ロジック
+        // 💡 改善されたステップ遷移ロジック
         LaunchedEffect(detectionData.faces, isRegistered, currentStep) {
             if (!isRegistered || isProcessing) return@LaunchedEffect
 
+            // 顔が一時的に見失われた場合のバッファ（連続10フレーム以上ロストでリセット）
             if (detectionData.faces.isEmpty()) {
-                currentStep = AuthStep.WAITING
+                lostFaceFrames++
+                if (lostFaceFrames > 10) {
+                    currentStep = AuthStep.WAITING
+                }
                 return@LaunchedEffect
+            } else {
+                lostFaceFrames = 0
             }
 
             when (currentStep) {
@@ -146,27 +152,27 @@ fun CameraScreen() {
                     SoundManager.play(SoundType.BEEP)
                 }
                 AuthStep.CHECK_TURN -> {
-                    // 首を15度以上傾けたらパス
+                    // 首を15度以上傾けたらクリア
                     if (abs(headAngleY) >= 15f) {
                         SoundManager.play(SoundType.STEP_PASS)
                         safeVibrate(context, 50)
-                        currentStep = AuthStep.CHECK_FRONT // 次は正面！
+                        currentStep = AuthStep.CHECK_FRONT
                     }
                 }
                 AuthStep.CHECK_FRONT -> {
-                    // 正面（角度が5度以下）に戻ったらパス
-                    if (abs(headAngleY) < 5f) {
+                    // 正面（8度以下）に戻ったらクリア
+                    if (abs(headAngleY) <= 8f) {
                         SoundManager.play(SoundType.STEP_PASS)
                         safeVibrate(context, 50)
-                        currentStep = AuthStep.CHECK_SMILE // 最後に笑顔！
+                        currentStep = AuthStep.CHECK_SMILE
                     }
                 }
                 AuthStep.CHECK_SMILE -> {
-                    // 正面を向いた状態で笑顔度90%以上！
-                    if (smileProb >= 0.9f) {
+                    // 💡 首の角度は無視！笑顔度70%（0.7f）以上でクリア
+                    if (smileProb >= 0.7f) {
                         isProcessing = true
                         SoundManager.play(SoundType.SCANNING)
-                        delay(800)
+                        delay(600)
                         currentStep = AuthStep.GRANTED
                         SoundManager.play(SoundType.SUCCESS)
                         safeVibrate(context, 200)
@@ -279,8 +285,8 @@ fun TopStatusHeader(
     val (statusText, statusColor) = when (currentStep) {
         AuthStep.WAITING -> "🔴 対象を検索中..." to Color(0xFFFF3366)
         AuthStep.CHECK_TURN -> "🔄 Step 1: 顔を左右どちらかに向けてください" to Color(0xFF00CCFF)
-        AuthStep.CHECK_FRONT -> "🔽 Step 2: 正面を向いてください" to Color(0xFFB388FF) // パープルに変更
-        AuthStep.CHECK_SMILE -> "😊 Step 3: 90%以上の笑顔を見せてください" to Color(0xFFFFCC00)
+        AuthStep.CHECK_FRONT -> "🔽 Step 2: 正面を向いてください" to Color(0xFFB388FF)
+        AuthStep.CHECK_SMILE -> "😊 Step 3: ニッコリ笑顔を見せてください" to Color(0xFFFFCC00)
         AuthStep.GRANTED -> "❇️ ACCESS GRANTED [ 本人確認完了 ]" to Color(0xFF00FF66)
     }
 
@@ -315,13 +321,20 @@ fun TopStatusHeader(
 
         Text(text = statusText, color = statusColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
 
+        // 💡 各ステップごとに必要な表示だけを表示！
         if (currentStep != AuthStep.WAITING) {
             Spacer(modifier = Modifier.height(6.dp))
-            val angleGuide = if (currentStep == AuthStep.CHECK_FRONT) "5°以下(正面)" else "15°以上(横)"
-
-            Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                Text("首角度: ${headAngleY.toInt()}° (目標: $angleGuide)", color = Color.White.copy(0.8f), fontSize = 11.sp)
-                Text("笑顔度: ${(smileProb * 100).toInt()}% (目標: 90%以上)", color = Color.White.copy(0.8f), fontSize = 11.sp)
+            when (currentStep) {
+                AuthStep.CHECK_TURN -> {
+                    Text("首角度: ${headAngleY.toInt()}° (目標: 15°以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
+                }
+                AuthStep.CHECK_FRONT -> {
+                    Text("首角度: ${headAngleY.toInt()}° (目標: 正面 8°以下)", color = Color.White.copy(0.8f), fontSize = 12.sp)
+                }
+                AuthStep.CHECK_SMILE -> {
+                    Text("笑顔度: ${(smileProb * 100).toInt()}% (目標: 70%以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
+                }
+                else -> {}
             }
         }
     }
