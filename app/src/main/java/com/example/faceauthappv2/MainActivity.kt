@@ -67,11 +67,11 @@ data class DetectionData(
 )
 
 enum class AuthStep {
-    WAITING,        // 顔検索
+    WAITING,        // 待機中
     CHECK_TURN,     // Step 1: 横を向く
     CHECK_FRONT,    // Step 2: 正面に戻る
-    CHECK_SMILE,    // Step 3: 笑顔を作る（首角度チェックなし）
-    GRANTED         // 成功
+    CHECK_SMILE,    // Step 3: 笑顔を作る
+    GRANTED         // 認証成功
 }
 
 class MainActivity : ComponentActivity() {
@@ -125,35 +125,33 @@ fun CameraScreen() {
 
         var currentStep by remember { mutableStateOf(AuthStep.WAITING) }
         var isProcessing by remember { mutableStateOf(false) }
-        var lostFaceFrames by remember { mutableIntStateOf(0) } // 顔ロスト猶予カウンター
 
         val currentFace = detectionData.faces.firstOrNull()
         val smileProb = currentFace?.smilingProbability ?: 0f
         val headAngleY = currentFace?.headEulerAngleY ?: 0f
+        val hasFace = detectionData.faces.isNotEmpty()
 
-        // 💡 改善されたステップ遷移ロジック
-        LaunchedEffect(detectionData.faces, isRegistered, currentStep) {
+        // 💡 シンプルで確実なステップ進行ロジック
+        LaunchedEffect(hasFace, isRegistered, currentStep, headAngleY, smileProb) {
             if (!isRegistered || isProcessing) return@LaunchedEffect
 
-            // 顔が一時的に見失われた場合のバッファ（連続10フレーム以上ロストでリセット）
-            if (detectionData.faces.isEmpty()) {
-                lostFaceFrames++
-                if (lostFaceFrames > 10) {
+            // 顔が画面から消えたら待機状態へ
+            if (!hasFace) {
+                if (currentStep != AuthStep.WAITING) {
                     currentStep = AuthStep.WAITING
                 }
                 return@LaunchedEffect
-            } else {
-                lostFaceFrames = 0
             }
 
+            // 顔がある時のステップ自動進行
             when (currentStep) {
                 AuthStep.WAITING -> {
                     currentStep = AuthStep.CHECK_TURN
                     SoundManager.play(SoundType.BEEP)
                 }
                 AuthStep.CHECK_TURN -> {
-                    // 首を15度以上傾けたらクリア
-                    if (abs(headAngleY) >= 15f) {
+                    // 首を12度以上傾けたらクリア
+                    if (abs(headAngleY) >= 12f) {
                         SoundManager.play(SoundType.STEP_PASS)
                         safeVibrate(context, 50)
                         currentStep = AuthStep.CHECK_FRONT
@@ -168,8 +166,8 @@ fun CameraScreen() {
                     }
                 }
                 AuthStep.CHECK_SMILE -> {
-                    // 💡 首の角度は無視！笑顔度70%（0.7f）以上でクリア
-                    if (smileProb >= 0.7f) {
+                    // 笑顔度60%以上で認証完了！
+                    if (smileProb >= 0.6f) {
                         isProcessing = true
                         SoundManager.play(SoundType.SCANNING)
                         delay(600)
@@ -189,10 +187,12 @@ fun CameraScreen() {
                 onPreviewViewCreated = { view -> previewViewRef = view }
             )
 
-            FaceOverlay(detectionData = detectionData, currentStep = currentStep)
+            FaceOverlay(detectionData = detectionData, currentStep = currentStep, isRegistered = isRegistered)
 
             TopStatusHeader(
                 currentStep = currentStep,
+                hasFace = hasFace,
+                isRegistered = isRegistered,
                 smileProb = smileProb,
                 headAngleY = headAngleY,
                 registeredName = registeredName,
@@ -205,16 +205,14 @@ fun CameraScreen() {
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 40.dp, start = 20.dp, end = 20.dp)
             ) {
-                val faceDetected = detectionData.faces.isNotEmpty()
-
                 if (!isRegistered) {
                     Button(
                         onClick = { showNameDialog = true },
-                        enabled = faceDetected,
+                        enabled = hasFace,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC), contentColor = Color.Black),
                         modifier = Modifier.fillMaxWidth().height(56.dp)
                     ) {
-                        Text(if (faceDetected) "👤 顔と名前を新規登録する" else "カメラに顔を映してください", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(if (hasFace) "👤 顔と名前を新規登録する" else "カメラに顔を映してください", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
                 } else {
                     Button(
@@ -277,17 +275,25 @@ fun CameraScreen() {
 @Composable
 fun TopStatusHeader(
     currentStep: AuthStep,
+    hasFace: Boolean,
+    isRegistered: Boolean,
     smileProb: Float,
     headAngleY: Float,
     registeredName: String,
     registeredBitmap: Bitmap?
 ) {
-    val (statusText, statusColor) = when (currentStep) {
-        AuthStep.WAITING -> "🔴 対象を検索中..." to Color(0xFFFF3366)
-        AuthStep.CHECK_TURN -> "🔄 Step 1: 顔を左右どちらかに向けてください" to Color(0xFF00CCFF)
-        AuthStep.CHECK_FRONT -> "🔽 Step 2: 正面を向いてください" to Color(0xFFB388FF)
-        AuthStep.CHECK_SMILE -> "😊 Step 3: ニッコリ笑顔を見せてください" to Color(0xFFFFCC00)
-        AuthStep.GRANTED -> "❇️ ACCESS GRANTED [ 本人確認完了 ]" to Color(0xFF00FF66)
+    // 💡 状態に応じた正確なメッセージ判定
+    val (statusText, statusColor) = if (!isRegistered) {
+        if (hasFace) "🔵 顔を検出しました！下のボタンで登録してください" to Color(0xFF00CCFF)
+        else "🔴 カメラに顔を映してください" to Color(0xFFFF3366)
+    } else {
+        when (currentStep) {
+            AuthStep.WAITING -> "🔴 対象を検索中..." to Color(0xFFFF3366)
+            AuthStep.CHECK_TURN -> "🔄 Step 1: 顔を左右どちらかに向けてください" to Color(0xFF00CCFF)
+            AuthStep.CHECK_FRONT -> "🔽 Step 2: 正面を向いてください" to Color(0xFFB388FF)
+            AuthStep.CHECK_SMILE -> "😊 Step 3: ニッコリ笑顔を見せてください" to Color(0xFFFFCC00)
+            AuthStep.GRANTED -> "❇️ ACCESS GRANTED [ 本人確認完了 ]" to Color(0xFF00FF66)
+        }
     }
 
     Column(
@@ -319,21 +325,14 @@ fun TopStatusHeader(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        Text(text = statusText, color = statusColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(text = statusText, color = statusColor, fontSize = 15.sp, fontWeight = FontWeight.Bold)
 
-        // 💡 各ステップごとに必要な表示だけを表示！
-        if (currentStep != AuthStep.WAITING) {
+        if (isRegistered && currentStep != AuthStep.WAITING) {
             Spacer(modifier = Modifier.height(6.dp))
             when (currentStep) {
-                AuthStep.CHECK_TURN -> {
-                    Text("首角度: ${headAngleY.toInt()}° (目標: 15°以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
-                }
-                AuthStep.CHECK_FRONT -> {
-                    Text("首角度: ${headAngleY.toInt()}° (目標: 正面 8°以下)", color = Color.White.copy(0.8f), fontSize = 12.sp)
-                }
-                AuthStep.CHECK_SMILE -> {
-                    Text("笑顔度: ${(smileProb * 100).toInt()}% (目標: 70%以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
-                }
+                AuthStep.CHECK_TURN -> Text("首角度: ${headAngleY.toInt()}° (目標: 12°以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
+                AuthStep.CHECK_FRONT -> Text("首角度: ${headAngleY.toInt()}° (目標: 正面 8°以下)", color = Color.White.copy(0.8f), fontSize = 12.sp)
+                AuthStep.CHECK_SMILE -> Text("笑顔度: ${(smileProb * 100).toInt()}% (目標: 60%以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
                 else -> {}
             }
         }
@@ -341,7 +340,7 @@ fun TopStatusHeader(
 }
 
 @Composable
-fun FaceOverlay(detectionData: DetectionData, currentStep: AuthStep) {
+fun FaceOverlay(detectionData: DetectionData, currentStep: AuthStep, isRegistered: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "scan")
     val scanProgress by infiniteTransition.animateFloat(
         initialValue = 0f, targetValue = 1f,
@@ -371,12 +370,16 @@ fun FaceOverlay(detectionData: DetectionData, currentStep: AuthStep) {
             val cornerLength = width * 0.25f
             val strokeWidth = 6.dp.toPx()
 
-            val themeColor = when (currentStep) {
-                AuthStep.GRANTED -> Color(0xFF00FF66)
-                AuthStep.CHECK_SMILE -> Color(0xFFFFCC00)
-                AuthStep.CHECK_FRONT -> Color(0xFFB388FF)
-                AuthStep.CHECK_TURN -> Color(0xFF00CCFF)
-                else -> Color(0xFF00FFCC)
+            val themeColor = if (!isRegistered) {
+                Color(0xFF00CCFF)
+            } else {
+                when (currentStep) {
+                    AuthStep.GRANTED -> Color(0xFF00FF66)
+                    AuthStep.CHECK_SMILE -> Color(0xFFFFCC00)
+                    AuthStep.CHECK_FRONT -> Color(0xFFB388FF)
+                    AuthStep.CHECK_TURN -> Color(0xFF00CCFF)
+                    else -> Color(0xFF00FFCC)
+                }
             }
 
             drawLine(themeColor, Offset(left, top), Offset(left + cornerLength, top), strokeWidth, StrokeCap.Round)
