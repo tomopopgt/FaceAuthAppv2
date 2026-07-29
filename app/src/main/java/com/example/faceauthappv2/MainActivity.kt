@@ -16,7 +16,6 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -43,6 +42,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.google.mlkit.vision.face.FaceLandmark
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
@@ -54,12 +54,11 @@ data class DetectionData(
     val rotationDegrees: Int = 0
 )
 
-// 💡 認証状態を表すステート
 enum class AuthStatus {
-    WAITING_FOR_FACE, // 顔待ち
-    UNREGISTERED,     // 顔検出中（未登録）
-    SCANNING,         // 照合スキャン中
-    GRANTED           // 認証成功
+    WAITING_FOR_FACE,
+    UNREGISTERED,
+    SCANNING,
+    GRANTED
 }
 
 class MainActivity : ComponentActivity() {
@@ -102,14 +101,17 @@ fun CameraScreen() {
 
     if (hasCameraPermission) {
         var detectionData by remember { mutableStateOf(DetectionData()) }
-        var isRegistered by remember { mutableStateOf(false) } // 顔が登録されているか
+        var isRegistered by remember { mutableStateOf(false) }
         var authStatus by remember { mutableStateOf(AuthStatus.WAITING_FOR_FACE) }
 
-        // 顔の検出状況に応じてステートを更新
+        // 検出された最初の顔データを取得
+        val currentFace = detectionData.faces.firstOrNull()
+        val smileProb = currentFace?.smilingProbability ?: 0f
+
         LaunchedEffect(detectionData.faces, isRegistered) {
             if (authStatus != AuthStatus.SCANNING && authStatus != AuthStatus.GRANTED) {
                 authStatus = if (detectionData.faces.isNotEmpty()) {
-                    if (isRegistered) AuthStatus.UNREGISTERED else AuthStatus.UNREGISTERED
+                    AuthStatus.UNREGISTERED
                 } else {
                     AuthStatus.WAITING_FOR_FACE
                 }
@@ -117,19 +119,18 @@ fun CameraScreen() {
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
-            // 1. カメラプレビュー
             CameraPreview(onFacesDetected = { data -> detectionData = data })
 
-            // 2. サイバースキャンオーバレイ
+            // 顔枠＋特徴点（ランドマーク）描画
             FaceOverlay(
                 detectionData = detectionData,
                 authStatus = authStatus
             )
 
-            // 3. 上部ステータス表示
-            TopStatusHeader(authStatus = authStatus, isRegistered = isRegistered)
+            // UIヘッダー
+            TopStatusHeader(authStatus = authStatus, smileProb = smileProb)
 
-            // 4. 画面下のコントロールボタン
+            // 下部操作パネル
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -145,7 +146,7 @@ fun CameraScreen() {
                             if (faceDetected) {
                                 scope.launch {
                                     authStatus = AuthStatus.SCANNING
-                                    delay(1500) // 1.5秒のスキャン演出
+                                    delay(1500)
                                     isRegistered = true
                                     authStatus = AuthStatus.GRANTED
                                 }
@@ -161,7 +162,7 @@ fun CameraScreen() {
                             .height(56.dp)
                     ) {
                         Text(
-                            text = if (faceDetected) "👤 この顔をユーザー登録する" else "顔をカメラに合わせてください",
+                            text = if (faceDetected) "👤 顔をシステムに初期登録" else "カメラに顔を映してください",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -171,6 +172,7 @@ fun CameraScreen() {
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        // 生体認証ボタン（笑顔度が一定以上で活性化する仕掛けも可能）
                         Button(
                             onClick = {
                                 if (faceDetected) {
@@ -210,29 +212,43 @@ fun CameraScreen() {
 }
 
 @Composable
-fun TopStatusHeader(authStatus: AuthStatus, isRegistered: Boolean) {
+fun TopStatusHeader(authStatus: AuthStatus, smileProb: Float) {
+    // 💡 画面上部に表示する日本語ガイドメッセージとテーマカラー
     val (statusText, statusColor) = when (authStatus) {
-        AuthStatus.WAITING_FOR_FACE -> "🔴 TARGET SEARCHING..." to Color(0xFFFF3366)
-        AuthStatus.UNREGISTERED -> if (isRegistered) "🟡 FACE DETECTED" to Color(0xFFFFCC00) else "🔵 NEW FACE DETECTED" to Color(0xFF00CCFF)
-        AuthStatus.SCANNING -> "⚡ SCANNING & MATCHING..." to Color(0xFF00FFCC)
-        AuthStatus.GRANTED -> "❇️ ACCESS GRANTED [ OK ]" to Color(0xFF00FF66)
+        AuthStatus.WAITING_FOR_FACE -> "🔴 対象を検索中..." to Color(0xFFFF3366)
+        AuthStatus.UNREGISTERED -> "🔵 顔を検出しました" to Color(0xFF00CCFF)
+        AuthStatus.SCANNING -> "⚡ 顔の特徴点をスキャン中..." to Color(0xFF00FFCC)
+        AuthStatus.GRANTED -> "❇️ 認証成功 [ アクセス許可 ]" to Color(0xFF00FF66)
     }
 
-    Box(
+    val smilePercent = (smileProb * 100).toInt()
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 40.dp, start = 16.dp, end = 16.dp)
-            .background(Color.Black.copy(alpha = 0.8f), shape = RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.85f), shape = RoundedCornerShape(12.dp))
             .border(1.dp, statusColor, shape = RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
+            .padding(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = statusText,
             color = statusColor,
-            fontSize = 18.sp,
+            fontSize = 17.sp,
             fontWeight = FontWeight.Bold
         )
+
+        // 💡 生体判定ガイド（笑顔度）の日本語化
+        if (authStatus != AuthStatus.WAITING_FOR_FACE) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "生体検知データ | 笑顔度: $smilePercent%",
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
@@ -241,7 +257,6 @@ fun FaceOverlay(
     detectionData: DetectionData,
     authStatus: AuthStatus
 ) {
-    // 💡 レーザースキャン線用の無限ループアニメーション (0.0f -> 1.0f)
     val infiniteTransition = rememberInfiniteTransition(label = "scan")
     val scanProgress by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -276,14 +291,13 @@ fun FaceOverlay(
             val cornerLength = width * 0.25f
             val strokeWidth = 6.dp.toPx()
 
-            // 状態に応じたテーマカラー切り替え
             val themeColor = when (authStatus) {
-                AuthStatus.GRANTED -> Color(0xFF00FF66)   // 認証成功：鮮烈なグリーン
-                AuthStatus.SCANNING -> Color(0xFF00E5FF)  // スキャン中：ネオンブルー
-                else -> Color(0xFF00FFCC)                 // 通常：シアン
+                AuthStatus.GRANTED -> Color(0xFF00FF66)
+                AuthStatus.SCANNING -> Color(0xFF00E5FF)
+                else -> Color(0xFF00FFCC)
             }
 
-            // 四隅ブラケット描画
+            // 四隅ブラケット
             drawLine(themeColor, Offset(left, top), Offset(left + cornerLength, top), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(left, top), Offset(left, top + cornerLength), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(right, top), Offset(right - cornerLength, top), strokeWidth, StrokeCap.Round)
@@ -293,7 +307,7 @@ fun FaceOverlay(
             drawLine(themeColor, Offset(right, bottom), Offset(right - cornerLength, bottom), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(right, bottom), Offset(right, bottom - cornerLength), strokeWidth, StrokeCap.Round)
 
-            // 💡 スキャン中または認識中は、枠内をレーザー線が上下に移動！
+            // レーザースキャン線
             if (authStatus == AuthStatus.SCANNING || authStatus == AuthStatus.UNREGISTERED) {
                 val laserY = top + (height * scanProgress)
                 drawLine(
@@ -302,6 +316,34 @@ fun FaceOverlay(
                     end = Offset(right - 10f, laserY),
                     strokeWidth = 4.dp.toPx(),
                     cap = StrokeCap.Round
+                )
+            }
+
+            // 💡 【新機能】顔の特徴点（目・鼻・口のランドマーク）に光るポインターを描画！
+            val landmarks = listOfNotNull(
+                face.getLandmark(FaceLandmark.LEFT_EYE),
+                face.getLandmark(FaceLandmark.RIGHT_EYE),
+                face.getLandmark(FaceLandmark.NOSE_BASE),
+                face.getLandmark(FaceLandmark.MOUTH_LEFT),
+                face.getLandmark(FaceLandmark.MOUTH_RIGHT),
+                face.getLandmark(FaceLandmark.MOUTH_BOTTOM)
+            )
+
+            landmarks.forEach { landmark ->
+                val landmarkX = size.width - (landmark.position.x * scaleX)
+                val landmarkY = landmark.position.y * scaleY
+
+                // 内側の点
+                drawCircle(
+                    color = themeColor,
+                    radius = 4.dp.toPx(),
+                    center = Offset(landmarkX, landmarkY)
+                )
+                // 外側の発光リング
+                drawCircle(
+                    color = themeColor.copy(alpha = 0.4f),
+                    radius = 9.dp.toPx(),
+                    center = Offset(landmarkX, landmarkY)
                 )
             }
         }
@@ -347,8 +389,12 @@ fun CameraPreview(onFacesDetected: (DetectionData) -> Unit) {
 }
 
 class FaceAnalyzer(private val onFacesDetected: (DetectionData) -> Unit) : ImageAnalysis.Analyzer {
+
+    // 💡 ランドマーク（特徴点）と分類（笑顔/目開き）のオプションを有効化！
     private val options = FaceDetectorOptions.Builder()
         .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+        .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+        .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
         .build()
 
     private val detector = FaceDetection.getClient(options)
