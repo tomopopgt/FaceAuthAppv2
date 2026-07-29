@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Build
@@ -26,7 +25,6 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -61,22 +59,18 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import kotlin.math.abs
 
-// 💡 検出データとカメラのBitmapを保持
 data class DetectionData(
     val faces: List<Face> = emptyList(),
     val imageWidth: Int = 0,
     val imageHeight: Int = 0,
-    val rotationDegrees: Int = 0,
-    val frameBitmap: Bitmap? = null
+    val rotationDegrees: Int = 0
 )
 
-// 💡 多段階認証ステップ
 enum class AuthStep {
-    WAITING,        // 顔待ち
-    CHECK_TURN,     // Step 1: 横を向く
-    CHECK_SMILE,    // Step 2: 笑顔を作る
-    GRANTED,        // 認証成功
-    REJECTED        // 認証失敗
+    WAITING,        // 顔検索
+    CHECK_TURN,     // 横を向く
+    CHECK_SMILE,    // 笑顔を作る
+    GRANTED         // 成功
 }
 
 class MainActivity : ComponentActivity() {
@@ -89,6 +83,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        SoundManager.release()
     }
 }
 
@@ -116,22 +115,21 @@ fun CameraScreen() {
 
     if (hasCameraPermission) {
         var detectionData by remember { mutableStateOf(DetectionData()) }
+        var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
 
-        // ユーザー情報
         var registeredName by remember { mutableStateOf("") }
         var registeredFaceBitmap by remember { mutableStateOf<Bitmap?>(null) }
         var isRegistered by remember { mutableStateOf(false) }
         var showNameDialog by remember { mutableStateOf(false) }
 
-        // 認証状態
         var currentStep by remember { mutableStateOf(AuthStep.WAITING) }
         var isProcessing by remember { mutableStateOf(false) }
 
         val currentFace = detectionData.faces.firstOrNull()
         val smileProb = currentFace?.smilingProbability ?: 0f
-        val headAngleY = currentFace?.headEulerAngleY ?: 0f // 左右の首振り角度 (+: 左, -: 右)
+        val headAngleY = currentFace?.headEulerAngleY ?: 0f
 
-        // 💡 ハンズフリー自動認証ロジック
+        // 自動進行ロジック
         LaunchedEffect(detectionData.faces, isRegistered, currentStep) {
             if (!isRegistered || isProcessing) return@LaunchedEffect
 
@@ -143,13 +141,13 @@ fun CameraScreen() {
             when (currentStep) {
                 AuthStep.WAITING -> {
                     currentStep = AuthStep.CHECK_TURN
-                    playCyberSound(context, SoundType.BEEP)
+                    SoundManager.play(SoundType.BEEP)
                 }
                 AuthStep.CHECK_TURN -> {
-                    // 首を20度以上横に向けたらクリア！
-                    if (abs(headAngleY) >= 20f) {
-                        playCyberSound(context, SoundType.STEP_PASS)
-                        vibrate(context, 50)
+                    // 首を15度以上傾けたらパス！
+                    if (abs(headAngleY) >= 15f) {
+                        SoundManager.play(SoundType.STEP_PASS)
+                        safeVibrate(context, 50)
                         currentStep = AuthStep.CHECK_SMILE
                     }
                 }
@@ -157,11 +155,11 @@ fun CameraScreen() {
                     // 笑顔度90%以上で最終クリア！
                     if (smileProb >= 0.9f) {
                         isProcessing = true
-                        playCyberSound(context, SoundType.SCANNING)
+                        SoundManager.play(SoundType.SCANNING)
                         delay(800)
                         currentStep = AuthStep.GRANTED
-                        playCyberSound(context, SoundType.SUCCESS)
-                        vibrate(context, 200)
+                        SoundManager.play(SoundType.SUCCESS)
+                        safeVibrate(context, 200)
                         isProcessing = false
                     }
                 }
@@ -170,11 +168,13 @@ fun CameraScreen() {
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
-            CameraPreview(onFacesDetected = { data -> detectionData = data })
+            CameraPreview(
+                onFacesDetected = { data -> detectionData = data },
+                onPreviewViewCreated = { view -> previewViewRef = view }
+            )
 
             FaceOverlay(detectionData = detectionData, currentStep = currentStep)
 
-            // 上部ステータス ＆ 生体HUD
             TopStatusHeader(
                 currentStep = currentStep,
                 smileProb = smileProb,
@@ -183,7 +183,6 @@ fun CameraScreen() {
                 registeredBitmap = registeredFaceBitmap
             )
 
-            // 下部操作エリア
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -217,7 +216,6 @@ fun CameraScreen() {
                 }
             }
 
-            // 名前入力ダイアログ
             if (showNameDialog) {
                 var inputText by remember { mutableStateOf("") }
                 AlertDialog(
@@ -239,11 +237,11 @@ fun CameraScreen() {
                             onClick = {
                                 if (inputText.isNotBlank()) {
                                     registeredName = inputText
-                                    registeredFaceBitmap = detectionData.frameBitmap
+                                    registeredFaceBitmap = previewViewRef?.bitmap
                                     isRegistered = true
                                     showNameDialog = false
                                     currentStep = AuthStep.WAITING
-                                    playCyberSound(context, SoundType.SUCCESS)
+                                    SoundManager.play(SoundType.SUCCESS)
                                 }
                             }
                         ) {
@@ -273,7 +271,6 @@ fun TopStatusHeader(
         AuthStep.CHECK_TURN -> "🔄 Step 1: 顔を左右どちらかに向けてください" to Color(0xFF00CCFF)
         AuthStep.CHECK_SMILE -> "😊 Step 2: 90%以上の笑顔を見せてください" to Color(0xFFFFCC00)
         AuthStep.GRANTED -> "❇️ ACCESS GRANTED [ 本人確認完了 ]" to Color(0xFF00FF66)
-        AuthStep.REJECTED -> "❌ 認証エラー" to Color(0xFFFF3300)
     }
 
     Column(
@@ -285,7 +282,6 @@ fun TopStatusHeader(
             .padding(14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 登録ユーザーHUD表示
         if (registeredName.isNotEmpty()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -302,7 +298,7 @@ fun TopStatusHeader(
                 Spacer(modifier = Modifier.width(10.dp))
                 Text("対象者: $registeredName", color = Color(0xFF00FFCC), fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
-            Divider(color = Color.Gray.copy(alpha = 0.5f), thickness = 1.dp)
+            HorizontalDivider(color = Color.Gray.copy(alpha = 0.5f), thickness = 1.dp)
             Spacer(modifier = Modifier.height(8.dp))
         }
 
@@ -311,7 +307,7 @@ fun TopStatusHeader(
         if (currentStep != AuthStep.WAITING) {
             Spacer(modifier = Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                Text("首角度: ${headAngleY.toInt()}° (目標: 20°以上)", color = Color.White.copy(0.8f), fontSize = 11.sp)
+                Text("首角度: ${headAngleY.toInt()}° (目標: 15°以上)", color = Color.White.copy(0.8f), fontSize = 11.sp)
                 Text("笑顔度: ${(smileProb * 100).toInt()}% (目標: 90%以上)", color = Color.White.copy(0.8f), fontSize = 11.sp)
             }
         }
@@ -356,7 +352,6 @@ fun FaceOverlay(detectionData: DetectionData, currentStep: AuthStep) {
                 else -> Color(0xFF00FFCC)
             }
 
-            // 四隅ブラケット
             drawLine(themeColor, Offset(left, top), Offset(left + cornerLength, top), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(left, top), Offset(left, top + cornerLength), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(right, top), Offset(right - cornerLength, top), strokeWidth, StrokeCap.Round)
@@ -366,11 +361,9 @@ fun FaceOverlay(detectionData: DetectionData, currentStep: AuthStep) {
             drawLine(themeColor, Offset(right, bottom), Offset(right - cornerLength, bottom), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(right, bottom), Offset(right, bottom - cornerLength), strokeWidth, StrokeCap.Round)
 
-            // レーザー線
             val laserY = top + (height * scanProgress)
             drawLine(themeColor.copy(alpha = 0.8f), Offset(left + 10f, laserY), Offset(right - 10f, laserY), 4.dp.toPx(), StrokeCap.Round)
 
-            // 特徴点
             val landmarks = listOfNotNull(
                 face.getLandmark(FaceLandmark.LEFT_EYE), face.getLandmark(FaceLandmark.RIGHT_EYE),
                 face.getLandmark(FaceLandmark.NOSE_BASE), face.getLandmark(FaceLandmark.MOUTH_LEFT),
@@ -387,12 +380,17 @@ fun FaceOverlay(detectionData: DetectionData, currentStep: AuthStep) {
 }
 
 @Composable
-fun CameraPreview(onFacesDetected: (DetectionData) -> Unit) {
+fun CameraPreview(
+    onFacesDetected: (DetectionData) -> Unit,
+    onPreviewViewCreated: (PreviewView) -> Unit
+) {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     AndroidView(
         factory = { ctx ->
             val previewView = PreviewView(ctx)
+            onPreviewViewCreated(previewView)
+
             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
             cameraProviderFuture.addListener({
@@ -435,7 +433,6 @@ class FaceAnalyzer(private val onFacesDetected: (DetectionData) -> Unit) : Image
         if (mediaImage != null) {
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
             val image = InputImage.fromMediaImage(mediaImage, rotationDegrees)
-            val bitmap = imageProxy.toBitmap().rotate(rotationDegrees.toFloat())
 
             detector.process(image)
                 .addOnSuccessListener { faces ->
@@ -444,8 +441,7 @@ class FaceAnalyzer(private val onFacesDetected: (DetectionData) -> Unit) : Image
                             faces = faces,
                             imageWidth = mediaImage.width,
                             imageHeight = mediaImage.height,
-                            rotationDegrees = rotationDegrees,
-                            frameBitmap = bitmap
+                            rotationDegrees = rotationDegrees
                         )
                     )
                 }
@@ -454,43 +450,54 @@ class FaceAnalyzer(private val onFacesDetected: (DetectionData) -> Unit) : Image
             imageProxy.close()
         }
     }
-
-    private fun Bitmap.rotate(degrees: Float): Bitmap {
-        val matrix = Matrix().apply { postRotate(degrees); postScale(-1f, 1f) } // 鏡像補正
-        return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
-    }
 }
 
-// 💡 サイバー効果音再生関数
+// 💡 音声マネージャー（リソース漏れ防止のシングルトン構造）
 enum class SoundType { BEEP, STEP_PASS, SCANNING, SUCCESS }
 
-fun playCyberSound(context: Context, type: SoundType) {
-    try {
-        val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
-        when (type) {
-            SoundType.BEEP -> toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-            SoundType.STEP_PASS -> toneGen.startTone(ToneGenerator.TONE_PROP_ACK, 120)
-            SoundType.SCANNING -> toneGen.startTone(ToneGenerator.TONE_CDMA_PIP, 200)
-            SoundType.SUCCESS -> toneGen.startTone(ToneGenerator.TONE_PROP_PROMPT, 300)
+object SoundManager {
+    private var toneGen: ToneGenerator? = null
+
+    fun play(type: SoundType) {
+        try {
+            if (toneGen == null) {
+                toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+            }
+            val tone = when (type) {
+                SoundType.BEEP -> ToneGenerator.TONE_PROP_BEEP
+                SoundType.STEP_PASS -> ToneGenerator.TONE_PROP_ACK
+                SoundType.SCANNING -> ToneGenerator.TONE_CDMA_PIP
+                SoundType.SUCCESS -> ToneGenerator.TONE_PROP_PROMPT
+            }
+            toneGen?.startTone(tone, 100)
+        } catch (e: Exception) {
+            Log.e("SoundManager", "音再生エラー", e)
         }
-    } catch (e: Exception) {
-        Log.e("Sound", "音声再生エラー", e)
+    }
+
+    fun release() {
+        toneGen?.release()
+        toneGen = null
     }
 }
 
-// 💡 バイブレーション関数
-fun vibrate(context: Context, durationMs: Long) {
-    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-        vibratorManager.defaultVibrator
-    } else {
-        @Suppress("DEPRECATION")
-        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
-    } else {
-        @Suppress("DEPRECATION")
-        vibrator.vibrate(durationMs)
+// 💡 完全安全化されたバイブレーション関数
+fun safeVibrate(context: Context, durationMs: Long) {
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator?.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator?.vibrate(durationMs)
+        }
+    } catch (e: Exception) {
+        Log.e("Vibrate", "バイブレーション非対応または例外", e)
     }
 }
