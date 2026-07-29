@@ -28,7 +28,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
@@ -58,7 +57,8 @@ enum class AuthStatus {
     WAITING_FOR_FACE,
     UNREGISTERED,
     SCANNING,
-    GRANTED
+    GRANTED,
+    REJECTED
 }
 
 class MainActivity : ComponentActivity() {
@@ -104,12 +104,11 @@ fun CameraScreen() {
         var isRegistered by remember { mutableStateOf(false) }
         var authStatus by remember { mutableStateOf(AuthStatus.WAITING_FOR_FACE) }
 
-        // 検出された最初の顔データを取得
         val currentFace = detectionData.faces.firstOrNull()
         val smileProb = currentFace?.smilingProbability ?: 0f
 
         LaunchedEffect(detectionData.faces, isRegistered) {
-            if (authStatus != AuthStatus.SCANNING && authStatus != AuthStatus.GRANTED) {
+            if (authStatus != AuthStatus.SCANNING && authStatus != AuthStatus.GRANTED && authStatus != AuthStatus.REJECTED) {
                 authStatus = if (detectionData.faces.isNotEmpty()) {
                     AuthStatus.UNREGISTERED
                 } else {
@@ -121,16 +120,13 @@ fun CameraScreen() {
         Box(modifier = Modifier.fillMaxSize()) {
             CameraPreview(onFacesDetected = { data -> detectionData = data })
 
-            // 顔枠＋特徴点（ランドマーク）描画
             FaceOverlay(
                 detectionData = detectionData,
                 authStatus = authStatus
             )
 
-            // UIヘッダー
             TopStatusHeader(authStatus = authStatus, smileProb = smileProb)
 
-            // 下部操作パネル
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -146,9 +142,9 @@ fun CameraScreen() {
                             if (faceDetected) {
                                 scope.launch {
                                     authStatus = AuthStatus.SCANNING
-                                    delay(1500)
+                                    delay(1200)
                                     isRegistered = true
-                                    authStatus = AuthStatus.GRANTED
+                                    authStatus = AuthStatus.UNREGISTERED
                                 }
                             }
                         },
@@ -172,14 +168,19 @@ fun CameraScreen() {
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // 生体認証ボタン（笑顔度が一定以上で活性化する仕掛けも可能）
                         Button(
                             onClick = {
                                 if (faceDetected) {
                                     scope.launch {
                                         authStatus = AuthStatus.SCANNING
-                                        delay(1200)
-                                        authStatus = AuthStatus.GRANTED
+                                        delay(1000)
+
+                                        // 💡 笑顔度90%以上（0.9f）の時のみ認証許可！
+                                        if (smileProb >= 0.9f) {
+                                            authStatus = AuthStatus.GRANTED
+                                        } else {
+                                            authStatus = AuthStatus.REJECTED
+                                        }
                                     }
                                 }
                             },
@@ -187,7 +188,7 @@ fun CameraScreen() {
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
                             modifier = Modifier.weight(1f).height(56.dp)
                         ) {
-                            Text("🔑 顔認証を実行", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text("😊 笑顔で認証を実行", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
 
                         OutlinedButton(
@@ -213,12 +214,12 @@ fun CameraScreen() {
 
 @Composable
 fun TopStatusHeader(authStatus: AuthStatus, smileProb: Float) {
-    // 💡 画面上部に表示する日本語ガイドメッセージとテーマカラー
     val (statusText, statusColor) = when (authStatus) {
         AuthStatus.WAITING_FOR_FACE -> "🔴 対象を検索中..." to Color(0xFFFF3366)
         AuthStatus.UNREGISTERED -> "🔵 顔を検出しました" to Color(0xFF00CCFF)
-        AuthStatus.SCANNING -> "⚡ 顔の特徴点をスキャン中..." to Color(0xFF00FFCC)
-        AuthStatus.GRANTED -> "❇️ 認証成功 [ アクセス許可 ]" to Color(0xFF00FF66)
+        AuthStatus.SCANNING -> "⚡ 笑顔度と特徴点を解析中..." to Color(0xFF00FFCC)
+        AuthStatus.GRANTED -> "❇️ 認証成功 [ 最高の笑顔を確認 ]" to Color(0xFF00FF66)
+        AuthStatus.REJECTED -> "❌ 認証拒否 [ 笑顔が足りません！ ]" to Color(0xFFFF3300)
     }
 
     val smilePercent = (smileProb * 100).toInt()
@@ -239,11 +240,10 @@ fun TopStatusHeader(authStatus: AuthStatus, smileProb: Float) {
             fontWeight = FontWeight.Bold
         )
 
-        // 💡 生体判定ガイド（笑顔度）の日本語化
         if (authStatus != AuthStatus.WAITING_FOR_FACE) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "生体検知データ | 笑顔度: $smilePercent%",
+                text = "生体検知データ | 笑顔度: $smilePercent% (必要: 90%以上)",
                 color = Color.White.copy(alpha = 0.8f),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
@@ -293,11 +293,11 @@ fun FaceOverlay(
 
             val themeColor = when (authStatus) {
                 AuthStatus.GRANTED -> Color(0xFF00FF66)
+                AuthStatus.REJECTED -> Color(0xFFFF3300)
                 AuthStatus.SCANNING -> Color(0xFF00E5FF)
                 else -> Color(0xFF00FFCC)
             }
 
-            // 四隅ブラケット
             drawLine(themeColor, Offset(left, top), Offset(left + cornerLength, top), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(left, top), Offset(left, top + cornerLength), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(right, top), Offset(right - cornerLength, top), strokeWidth, StrokeCap.Round)
@@ -307,7 +307,6 @@ fun FaceOverlay(
             drawLine(themeColor, Offset(right, bottom), Offset(right - cornerLength, bottom), strokeWidth, StrokeCap.Round)
             drawLine(themeColor, Offset(right, bottom), Offset(right, bottom - cornerLength), strokeWidth, StrokeCap.Round)
 
-            // レーザースキャン線
             if (authStatus == AuthStatus.SCANNING || authStatus == AuthStatus.UNREGISTERED) {
                 val laserY = top + (height * scanProgress)
                 drawLine(
@@ -319,7 +318,6 @@ fun FaceOverlay(
                 )
             }
 
-            // 💡 【新機能】顔の特徴点（目・鼻・口のランドマーク）に光るポインターを描画！
             val landmarks = listOfNotNull(
                 face.getLandmark(FaceLandmark.LEFT_EYE),
                 face.getLandmark(FaceLandmark.RIGHT_EYE),
@@ -333,18 +331,8 @@ fun FaceOverlay(
                 val landmarkX = size.width - (landmark.position.x * scaleX)
                 val landmarkY = landmark.position.y * scaleY
 
-                // 内側の点
-                drawCircle(
-                    color = themeColor,
-                    radius = 4.dp.toPx(),
-                    center = Offset(landmarkX, landmarkY)
-                )
-                // 外側の発光リング
-                drawCircle(
-                    color = themeColor.copy(alpha = 0.4f),
-                    radius = 9.dp.toPx(),
-                    center = Offset(landmarkX, landmarkY)
-                )
+                drawCircle(color = themeColor, radius = 4.dp.toPx(), center = Offset(landmarkX, landmarkY))
+                drawCircle(color = themeColor.copy(alpha = 0.4f), radius = 9.dp.toPx(), center = Offset(landmarkX, landmarkY))
             }
         }
     }
@@ -389,8 +377,6 @@ fun CameraPreview(onFacesDetected: (DetectionData) -> Unit) {
 }
 
 class FaceAnalyzer(private val onFacesDetected: (DetectionData) -> Unit) : ImageAnalysis.Analyzer {
-
-    // 💡 ランドマーク（特徴点）と分類（笑顔/目開き）のオプションを有効化！
     private val options = FaceDetectorOptions.Builder()
         .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
         .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
