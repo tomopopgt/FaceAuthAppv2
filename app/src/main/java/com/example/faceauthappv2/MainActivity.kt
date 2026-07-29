@@ -66,10 +66,12 @@ data class DetectionData(
     val rotationDegrees: Int = 0
 )
 
+// 💡 ステップを3段階に増やしました！
 enum class AuthStep {
     WAITING,        // 顔検索
-    CHECK_TURN,     // 横を向く
-    CHECK_SMILE,    // 笑顔を作る
+    CHECK_TURN,     // Step 1: 横を向く
+    CHECK_FRONT,    // Step 2: 正面に戻る
+    CHECK_SMILE,    // Step 3: 笑顔を作る
     GRANTED         // 成功
 }
 
@@ -129,7 +131,7 @@ fun CameraScreen() {
         val smileProb = currentFace?.smilingProbability ?: 0f
         val headAngleY = currentFace?.headEulerAngleY ?: 0f
 
-        // 自動進行ロジック
+        // 💡 3段階の自然な自動進行ロジック
         LaunchedEffect(detectionData.faces, isRegistered, currentStep) {
             if (!isRegistered || isProcessing) return@LaunchedEffect
 
@@ -144,15 +146,23 @@ fun CameraScreen() {
                     SoundManager.play(SoundType.BEEP)
                 }
                 AuthStep.CHECK_TURN -> {
-                    // 首を15度以上傾けたらパス！
+                    // 首を15度以上傾けたらパス
                     if (abs(headAngleY) >= 15f) {
                         SoundManager.play(SoundType.STEP_PASS)
                         safeVibrate(context, 50)
-                        currentStep = AuthStep.CHECK_SMILE
+                        currentStep = AuthStep.CHECK_FRONT // 次は正面！
+                    }
+                }
+                AuthStep.CHECK_FRONT -> {
+                    // 正面（角度が5度以下）に戻ったらパス
+                    if (abs(headAngleY) < 5f) {
+                        SoundManager.play(SoundType.STEP_PASS)
+                        safeVibrate(context, 50)
+                        currentStep = AuthStep.CHECK_SMILE // 最後に笑顔！
                     }
                 }
                 AuthStep.CHECK_SMILE -> {
-                    // 笑顔度90%以上で最終クリア！
+                    // 正面を向いた状態で笑顔度90%以上！
                     if (smileProb >= 0.9f) {
                         isProcessing = true
                         SoundManager.play(SoundType.SCANNING)
@@ -269,7 +279,8 @@ fun TopStatusHeader(
     val (statusText, statusColor) = when (currentStep) {
         AuthStep.WAITING -> "🔴 対象を検索中..." to Color(0xFFFF3366)
         AuthStep.CHECK_TURN -> "🔄 Step 1: 顔を左右どちらかに向けてください" to Color(0xFF00CCFF)
-        AuthStep.CHECK_SMILE -> "😊 Step 2: 90%以上の笑顔を見せてください" to Color(0xFFFFCC00)
+        AuthStep.CHECK_FRONT -> "🔽 Step 2: 正面を向いてください" to Color(0xFFB388FF) // パープルに変更
+        AuthStep.CHECK_SMILE -> "😊 Step 3: 90%以上の笑顔を見せてください" to Color(0xFFFFCC00)
         AuthStep.GRANTED -> "❇️ ACCESS GRANTED [ 本人確認完了 ]" to Color(0xFF00FF66)
     }
 
@@ -306,8 +317,10 @@ fun TopStatusHeader(
 
         if (currentStep != AuthStep.WAITING) {
             Spacer(modifier = Modifier.height(6.dp))
+            val angleGuide = if (currentStep == AuthStep.CHECK_FRONT) "5°以下(正面)" else "15°以上(横)"
+
             Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                Text("首角度: ${headAngleY.toInt()}° (目標: 15°以上)", color = Color.White.copy(0.8f), fontSize = 11.sp)
+                Text("首角度: ${headAngleY.toInt()}° (目標: $angleGuide)", color = Color.White.copy(0.8f), fontSize = 11.sp)
                 Text("笑顔度: ${(smileProb * 100).toInt()}% (目標: 90%以上)", color = Color.White.copy(0.8f), fontSize = 11.sp)
             }
         }
@@ -348,6 +361,7 @@ fun FaceOverlay(detectionData: DetectionData, currentStep: AuthStep) {
             val themeColor = when (currentStep) {
                 AuthStep.GRANTED -> Color(0xFF00FF66)
                 AuthStep.CHECK_SMILE -> Color(0xFFFFCC00)
+                AuthStep.CHECK_FRONT -> Color(0xFFB388FF)
                 AuthStep.CHECK_TURN -> Color(0xFF00CCFF)
                 else -> Color(0xFF00FFCC)
             }
@@ -452,7 +466,6 @@ class FaceAnalyzer(private val onFacesDetected: (DetectionData) -> Unit) : Image
     }
 }
 
-// 💡 音声マネージャー（リソース漏れ防止のシングルトン構造）
 enum class SoundType { BEEP, STEP_PASS, SCANNING, SUCCESS }
 
 object SoundManager {
@@ -481,7 +494,6 @@ object SoundManager {
     }
 }
 
-// 💡 完全安全化されたバイブレーション関数
 fun safeVibrate(context: Context, durationMs: Long) {
     try {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
