@@ -1,5 +1,6 @@
 package com.example.faceauthappv2.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -65,7 +66,7 @@ fun HomeScreen(
             // 2. 登録ユーザー一覧画面への切り替えボタン
             OutlinedButton(
                 onClick = onNavigateToUserList,
-                border = ButtonDefaults.outlinedToolboxBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF00CCFF))),
+                border = BorderStroke(1.dp, Color(0xFF00CCFF)), // 🟢 シンプルな BorderStroke に修正！
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
