@@ -131,26 +131,23 @@ fun CameraScreen() {
         val headAngleY = currentFace?.headEulerAngleY ?: 0f
         val hasFace = detectionData.faces.isNotEmpty()
 
-        // 💡 シンプルで確実なステップ進行ロジック
+        // 💡 フレーム更新にキャンセルされない堅牢な自動進行ロジック
         LaunchedEffect(hasFace, isRegistered, currentStep, headAngleY, smileProb) {
             if (!isRegistered || isProcessing) return@LaunchedEffect
 
-            // 顔が画面から消えたら待機状態へ
             if (!hasFace) {
-                if (currentStep != AuthStep.WAITING) {
+                if (currentStep != AuthStep.WAITING && currentStep != AuthStep.GRANTED) {
                     currentStep = AuthStep.WAITING
                 }
                 return@LaunchedEffect
             }
 
-            // 顔がある時のステップ自動進行
             when (currentStep) {
                 AuthStep.WAITING -> {
                     currentStep = AuthStep.CHECK_TURN
                     SoundManager.play(SoundType.BEEP)
                 }
                 AuthStep.CHECK_TURN -> {
-                    // 首を12度以上傾けたらクリア
                     if (abs(headAngleY) >= 12f) {
                         SoundManager.play(SoundType.STEP_PASS)
                         safeVibrate(context, 50)
@@ -158,7 +155,6 @@ fun CameraScreen() {
                     }
                 }
                 AuthStep.CHECK_FRONT -> {
-                    // 正面（8度以下）に戻ったらクリア
                     if (abs(headAngleY) <= 8f) {
                         SoundManager.play(SoundType.STEP_PASS)
                         safeVibrate(context, 50)
@@ -166,15 +162,17 @@ fun CameraScreen() {
                     }
                 }
                 AuthStep.CHECK_SMILE -> {
-                    // 笑顔度60%以上で認証完了！
-                    if (smileProb >= 0.6f) {
+                    if (smileProb >= 0.5f) { // 50%以上の笑顔で判定
                         isProcessing = true
-                        SoundManager.play(SoundType.SCANNING)
-                        delay(600)
-                        currentStep = AuthStep.GRANTED
-                        SoundManager.play(SoundType.SUCCESS)
-                        safeVibrate(context, 200)
-                        isProcessing = false
+                        // 💡 scope.launch で非同期処理にすることでキャンセルを防ぐ
+                        scope.launch {
+                            SoundManager.play(SoundType.SCANNING)
+                            delay(500)
+                            currentStep = AuthStep.GRANTED
+                            SoundManager.play(SoundType.SUCCESS)
+                            safeVibrate(context, 200)
+                            isProcessing = false
+                        }
                     }
                 }
                 else -> {}
@@ -282,7 +280,6 @@ fun TopStatusHeader(
     registeredName: String,
     registeredBitmap: Bitmap?
 ) {
-    // 💡 状態に応じた正確なメッセージ判定
     val (statusText, statusColor) = if (!isRegistered) {
         if (hasFace) "🔵 顔を検出しました！下のボタンで登録してください" to Color(0xFF00CCFF)
         else "🔴 カメラに顔を映してください" to Color(0xFFFF3366)
@@ -332,7 +329,7 @@ fun TopStatusHeader(
             when (currentStep) {
                 AuthStep.CHECK_TURN -> Text("首角度: ${headAngleY.toInt()}° (目標: 12°以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
                 AuthStep.CHECK_FRONT -> Text("首角度: ${headAngleY.toInt()}° (目標: 正面 8°以下)", color = Color.White.copy(0.8f), fontSize = 12.sp)
-                AuthStep.CHECK_SMILE -> Text("笑顔度: ${(smileProb * 100).toInt()}% (目標: 60%以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
+                AuthStep.CHECK_SMILE -> Text("笑顔度: ${(smileProb * 100).toInt()}% (目標: 50%以上)", color = Color.White.copy(0.8f), fontSize = 12.sp)
                 else -> {}
             }
         }
