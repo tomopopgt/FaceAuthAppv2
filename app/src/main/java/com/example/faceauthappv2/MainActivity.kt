@@ -169,7 +169,7 @@ fun CameraScreen() {
                             SoundManager.play(SoundType.SCANNING)
                             delay(500)
                             currentStep = AuthStep.GRANTED
-                            SoundManager.play(SoundType.SUCCESS)
+                            SoundManager.play(SoundType.REGISTERED)
                             safeVibrate(context, 200)
                             isProcessing = false
                         }
@@ -479,23 +479,46 @@ class FaceAnalyzer(private val onFacesDetected: (DetectionData) -> Unit) : Image
     }
 }
 
-enum class SoundType { BEEP, STEP_PASS, SCANNING, SUCCESS }
+enum class SoundType { BEEP, STEP_PASS, SCANNING, SUCCESS, REGISTERED }
 
 object SoundManager {
     private var toneGen: ToneGenerator? = null
+    // UIを固めずに音を連続再生するためのバックグラウンド実行スレッド
+    private val executor = Executors.newSingleThreadExecutor()
 
     fun play(type: SoundType) {
         try {
             if (toneGen == null) {
-                toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+                toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 100) // 音量MAX
             }
-            val tone = when (type) {
-                SoundType.BEEP -> ToneGenerator.TONE_PROP_BEEP
-                SoundType.STEP_PASS -> ToneGenerator.TONE_PROP_ACK
-                SoundType.SCANNING -> ToneGenerator.TONE_CDMA_PIP
-                SoundType.SUCCESS -> ToneGenerator.TONE_PROP_PROMPT
+
+            executor.execute {
+                when (type) {
+                    SoundType.BEEP -> {
+                        toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
+                    }
+                    SoundType.STEP_PASS -> {
+                        toneGen?.startTone(ToneGenerator.TONE_PROP_ACK, 80)
+                    }
+                    SoundType.SCANNING -> {
+                        toneGen?.startTone(ToneGenerator.TONE_CDMA_PIP, 120)
+                    }
+                    SoundType.SUCCESS -> {
+                        // 🌟 認証成功音（ティ・ロ・リーン！と駆け上がるメロディ）
+                        toneGen?.startTone(ToneGenerator.TONE_DTMF_6, 80)
+                        Thread.sleep(100)
+                        toneGen?.startTone(ToneGenerator.TONE_DTMF_9, 80)
+                        Thread.sleep(100)
+                        toneGen?.startTone(ToneGenerator.TONE_SUP_CONFIRM, 400)
+                    }
+                    SoundType.REGISTERED -> {
+                        // 🌟 新規登録音（チャキッ！ポーン！という重厚な完了音）
+                        toneGen?.startTone(ToneGenerator.TONE_DTMF_D, 100)
+                        Thread.sleep(120)
+                        toneGen?.startTone(ToneGenerator.TONE_PROP_PROMPT, 400)
+                    }
+                }
             }
-            toneGen?.startTone(tone, 100)
         } catch (e: Exception) {
             Log.e("SoundManager", "音再生エラー", e)
         }
