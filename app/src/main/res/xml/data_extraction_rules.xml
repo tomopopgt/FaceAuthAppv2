@@ -1,19 +1,36 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+================================================================================
+【ファイル概要：res/xml/data_extraction_rules.xml】
+このファイルは、Android 12（API level 31）以降における「データ抽出ルール」を定義するファイルです。
+
+【主な役割と `backup_rules.xml` との違い】
+1. Android 12 (API 31) 以上で適用される最新のデータ保護仕様
+2. 「クラウドバックアップ」と「端末間直接転送（Device-to-Device）」の制御を分離：
+   - <cloud-backup> : Google Drive等への自動クラウド保存時のルール
+   - <device-transfer> : 新旧スマホをケーブルやWi-Fiで直接繋いで行うデータ移行時のルール
+3. 顔認証データなどの機密情報を「クラウドには上げないが、新しいスマホへの直接移行時のみ引き継ぐ」
+   といった、セキュリティと利便性を両立した柔軟な設定が可能になります。
+================================================================================
 -->
 <data-extraction-rules>
+    <!-- ☁️ 【クラウドバックアップ用ルール（Google Drive等への保存）】 -->
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
+        <!--
+        💡 記述例：
+        ・特定のドメイン（sharedpref, file, database等）を個別に指定して除外/包含
+        <exclude domain="sharedpref" path="user_secret.xml"/>
+        <exclude domain="file" path="face_embeddings/"/>
         -->
     </cloud-backup>
+
+    <!-- 📱 【端末間直接転送用ルール（機種変更時のケーブル/Wi-Fi直接転送）】 -->
     <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        💡 記述例：
+        クラウドへは保存させないが、新しいスマホへの直接移行であれば
+        アプリのローカル設定（SharedPreferences等）をそのまま引き継ぐ設定など
+        <include domain="sharedpref" path="."/>
     </device-transfer>
     -->
 </data-extraction-rules>
