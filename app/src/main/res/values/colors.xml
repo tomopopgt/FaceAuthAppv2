@@ -1,10 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+================================================================================
+【ファイル概要：res/values/colors.xml】
+このファイルは、Androidシステム（OS）やXMLリソースから参照される「色リソース定義ファイル」です。
+
+【主な役割と Jetpack Compose との関係】
+1. AndroidManifest.xml や システムテーマ（ステータスバー、アプリ起動時のスプラッシュ画面など）から参照される色の定義
+2. Jetpack Compose 内での画面UI構築には主に `ui/theme/Color.kt` を使用しますが、
+   OSシステム設定や通知・ランチャー設定などの非Compose領域では本ファイルの色データが使用されます。
+3. カラーコードの形式：16進数 ARGB 形式（#AARRGGBB）
+================================================================================
+-->
 <resources>
+    <!-- 💜 旧Material Design (M2) 標準パープルカラー群（トーン別定義） -->
+    <!-- #FFBB86FC : 明るいパープル（不透明度100% / R:BB G:86 B:FC） -->
     <color name="purple_200">#FFBB86FC</color>
+
+    <!-- #FF6200EE : 標準的なメインパープル（不透明度100% / R:62 G:00 B:EE） -->
     <color name="purple_500">#FF6200EE</color>
+
+    <!-- #FF3700B3 : 濃いディープパープル（不透明度100% / R:37 G:00 B:B3） -->
     <color name="purple_700">#FF3700B3</color>
+
+    <!-- 🩵 旧Material Design (M2) 標準ティール（青緑）カラー群 -->
+    <!-- #FF03DAC5 : 明るいティール/アクセントカラー（不透明度100% / R:03 G:DA B:C5） -->
     <color name="teal_200">#FF03DAC5</color>
+
+    <!-- #FF018786 : 濃いティール/アクセントカラー（不透明度100% / R:01 G:87 B:86） -->
     <color name="teal_700">#FF018786</color>
+
+    <!-- 🖤 基本カラー（完全不透明な黒・白） -->
+    <!-- #FF000000 : アルファFF(100%) + RGB 000000 (完全な黒) -->
     <color name="black">#FF000000</color>
+
+    <!-- #FFFFFFFF : アルファFF(100%) + RGB FFFFFF (完全な白) -->
     <color name="white">#FFFFFFFF</color>
 </resources>
