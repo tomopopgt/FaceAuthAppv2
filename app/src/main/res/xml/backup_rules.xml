@@ -10,22 +10,22 @@
    Google Driveへ自動保存・復元する範囲をコントロールします。
 2. セキュリティとプライバシーの保護：
    顔認証データ（顔写真や特徴量ベクトルデータ）などの機密情報を無闇にクラウドへ
-   自動送信させたくない場合、ここに `<exclude>` タグを指定してバックアップ対象から除外します。
-3. 注意：Android 12（API 31）以降では、後述する `data_extraction_rules.xml` と併用されます。
+   自動送信させたくない場合、ここに <exclude> タグを指定してバックアップ対象から除外します。
+3. 注意：Android 12（API 31）以降では、後述する data_extraction_rules.xml と併用されます。
 ================================================================================
 -->
 <full-backup-content>
     <!--
         💡 【設定カスタマイズの記述例】
-        必要に応じてコメントアウト（<!-- -->）を解除し、ルールを追加できます。
+        必要に応じてコメント枠を解除し、ルールを追加できます。
 
-    例1：SharedPreference（設定値データ）全体をバックアップ対象に含める場合
-    <include domain="sharedpref" path="."/>
+        例1：SharedPreference（設定値データ）全体をバックアップ対象に含める場合
+        <include domain="sharedpref" path="."/>
 
-    例2：セキュリティ上の理由から、特定の設定ファイル（device.xmlなど）をバックアップから除外する場合
-    <exclude domain="sharedpref" path="device.xml"/>
+        例2：セキュリティ上の理由から、特定の設定ファイル（device.xmlなど）をバックアップから除外する場合
+        <exclude domain="sharedpref" path="device.xml"/>
 
-    例3：顔画像ファイルなどが保存される内部ストレージ（file）フォルダを除外する場合
-    <exclude domain="file" path="."/>
+        例3：顔画像ファイルなどが保存される内部ストレージ（file）フォルダを除外する場合
+        <exclude domain="file" path="."/>
     -->
 </full-backup-content>
