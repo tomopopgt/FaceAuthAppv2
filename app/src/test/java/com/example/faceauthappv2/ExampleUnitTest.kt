@@ -1,17 +1,42 @@
 package com.example.faceauthappv2
 
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
-import org.junit.Assert.*
+/*
+================================================================================
+【ファイル概要：ExampleUnitTest.kt】
+このファイルは、パソコン（ホストJVM）上で高速実行される「ローカル単体テスト（Unit Test）」です。
+
+【主な役割と特徴】
+1. Android端末（実機・エミュレータ）を起動せず、開発用PCのJava仮想マシン（JVM）上で直接実行されるテスト
+2. 実行速度が非常に高速（数ミリ秒〜数秒）なため、ロジックの動作検証や回帰テストに最適
+3. プロジェクト作成時にAndroid Studioによって標準で自動生成されるテストサンプル
+================================================================================
+*/
 
 /**
- * Example local unit test, which will execute on the development machine (host).
+ * 🧪 【ローカル単体テスト実行クラス】
  *
- * See [testing documentation](http://d.android.com/tools/testing).
+ * 💡 計装テストとの違い：
+ * `@RunWith(AndroidJUnit4::class)` などのAndroid特有の指定がなく、
+ * 純粋な Java/Kotlin のJUnitフレームワークのみで動作します。
  */
 class ExampleUnitTest {
+
+    /**
+     * ✅ 【計算ロジック検証テストメソッド】
+     *
+     * 💡 `@Test` アノテーション：
+     * この関数がテストケースの1つであることを示します。
+     * 左側の緑色の再生ボタン（▶）を押すと、実機を起動することなくPC上で即座に結果が出ます。
+     */
     @Test
     fun addition_isCorrect() {
+        // 🔍 加算処理（2 + 2）の結果が 4（期待通りの数値）になるかを検証（アサート）
+        // 第一引数：期待値（Expected） -> 4
+        // 第二引数：実際の計算式（Actual） -> 2 + 2
+        // 計算結果が期待通り 4 であればテスト成功（PASS）となります。
         assertEquals(4, 2 + 2)
     }
 }
