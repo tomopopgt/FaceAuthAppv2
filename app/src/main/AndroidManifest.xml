@@ -1,11 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+================================================================================
+【ファイル概要：AndroidManifest.xml】
+このファイルは、Androidアプリ全体の「構成図・設計図」であり、同時に「OSに対する申請書」の役割を果たします。
+
+【このファイルの主な役割】
+1. 権限（パーミッション）の申請：カメラ機能など、プライバシーに関わるハードウェア利用の許可宣言
+2. ハードウェア要件の指定：カメラが無い端末へのインストール制限など
+3. コンポーネント（画面）の登録：アプリ内に存在する画面（Activity）と、その起動条件の定義
+4. アプリ基本情報の設定：アイコン、アプリ名、カラーテーマ、キーボード自動調整ルールの指定
+================================================================================
+-->
+
+<!--
+  <manifest> タグ：XML全体のルート（根元）となる最外郭タグ。
+  - xmlns:android : Androidの標準属性（android:xxx）を使用するための名前空間宣言
+  - xmlns:tools   : 開発ツールやビルド時の特殊制御（tools:xxx）を使用するための名前空間宣言
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- カメラを使用するためのパーミッション -->
+    <!--
+      📷 【パーミッション設定：CAMERA】
+      OS（Androidシステム）に対して「このアプリはカメラを使用します」と宣言します。
+      この記述がない場合、コード上でカメラを起動しようとした瞬間にセキュリティ違反（SecurityException）でアプリが即座にクラッシュします。
+    -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="true" />
 
+    <!--
+      📱 【ハードウェア機能要件設定】
+      `android:required="true"` に設定することで、カメラハードウェアが搭載されていない特殊な端末（一部のスマートTVや産業用機器など）に対して、
+      Google Playストア上で「非対応アプリ」として検索・インストールを自動ブロックします。
+    -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="true" />
+
+    <!--
+      📦 <application> タグ：アプリ全体の挙動、ビジュアルテーマ、データ管理ルールを設定する大枠。
+
+      - android:allowBackup="true"
+        機種変更時やクラウド同期時に、アプリデータの自動バックアップを許可するかどうかの指定。
+
+      - android:dataExtractionRules="@xml/data_extraction_rules"
+        Android 12（API level 31）以降で適用される、ファイル・データのバックアップおよびデータ移行のルール定義ファイルを指定。
+
+      - android:fullBackupContent="@xml/backup_rules"
+        Android 6.0〜11（旧バージョン）向けの自動バックアップ除外・対象ファイルを定めた設定ファイルを指定。
+
+      - android:icon="@mipmap/ic_launcher"
+        ホーム画面や設定画面で表示される、アプリの標準四角形アイコン画像のリソース参照（res/mipmap内）。
+
+      - android:label="@string/app_name"
+        アプリの表示名。コードに直接書かず `res/values/strings.xml` を参照することで、多言語化に対応。
+
+      - android:roundIcon="@mipmap/ic_launcher_round"
+        Pixelスマホなど、アイコンを丸型で表示するホームUIに対応した丸形アイコン画像のリソース参照。
+
+      - android:supportsRtl="true"
+        RTL（Right-To-Left：アラビア語やヘブライ語など右から左へ読む言語）が設定された際、画面レイアウトを左右自動反転させるサポートの有効化。
+
+      - android:theme="@style/Theme.FaceAuthAppv2"
+        アプリ全体で共通適用されるカラーパレットやスタイル（`res/values/themes.xml` で定義）。
+    -->
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -15,18 +72,54 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.FaceAuthAppv2">
+
+        <!--
+          🚀 <activity> タグ：1つの画面（UI処理単位）を登録します。
+          Kotlinのクラス `MainActivity.kt` と対応しており、ここで登録されていない画面は表示できません。
+
+          - android:name=".MainActivity"
+            対応するKotlinクラス名（先頭のドット `.` はパッケージ名 `com.example.faceauthappv2` の省略形）。
+
+          - android:exported="true"
+            Android 12（API 31）以降の必須セキュリティ設定。
+            他のアプリやOS（ホーム画面のランチャー）からこの画面を直接呼び出すことを許可します。
+
+          - android:label="@string/app_name"
+            この画面のタイトルバー等に表示される名称指定。
+
+          - android:theme="@style/Theme.FaceAuthAppv2"
+            この画面個別に適用されるデザインテーマ指定。
+
+          - android:windowSoftInputMode="adjustResize"
+            名前入力のダイアログ等でソフトウェアキーボードが画面下に現れた際、
+            画面レイアウトを自動で上に押し上げて縮小し、入力フォームがキーボードで隠れないようにする重要設定。
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.FaceAuthAppv2"
             android:windowSoftInputMode="adjustResize">
+
+            <!--
+              🎯 <intent-filter> タグ：この画面が「どんな目的（Intent）」でOSから起動されるかを定義する受信用フィルター。
+            -->
             <intent-filter>
+                <!--
+                  action:MAIN
+                  このActivityが「アプリ全体の最初の起動用メインエントリーポイント」であることをOSに通知します。
+                -->
                 <action android:name="android.intent.action.MAIN" />
 
+                <!--
+                  category:LAUNCHER
+                  端末のホーム画面（アプリ一覧ドロワー）にこのアプリのアイコンを登録し、タップ可能にします。
+                -->
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
         </activity>
+
     </application>
 
 </manifest>
