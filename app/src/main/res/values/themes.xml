@@ -1,5 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+================================================================================
+【ファイル概要：res/values/themes.xml】
+このファイルは、Android OSレベルでの「アプリ共通テーマ（ウィンドウ基本スタイル）」を定義するファイルです。
+
+【主な役割と Jetpack Compose における意義】
+1. Android OS が Activity（画面）を生成する際の基本スタイルを指定
+2. `NoActionBar`（アクションバー非表示）の設定：
+   Jetpack Compose では自前でカスタムヘッダー（サイバー調のタイトルや戻るボタン等）を描画するため、
+   OS標準のタイトルバー（ActionBar）をあらかじめ消しておき、全画面を Compose 領域として確保します。
+3. AndroidManifest.xml 内の `android:theme` 属性から参照されます。
+================================================================================
+-->
 <resources>
 
+    <!-- 🎨 アプリの基盤となるOSテーマ定義 -->
+    <!--
+        name  : テーマの名前（AndroidManifest.xml等で参照する識別子）
+        parent: 継承元の基本テーマ（NoActionBar を指定することで、画面上部の標準タイトルバーを消去）
+    -->
     <style name="Theme.FaceAuthAppv2" parent="android:Theme.Material.Light.NoActionBar" />
+
 </resources>
