@@ -36,7 +36,7 @@
     <!--
       📱 【ハードウェア機能要件設定】
       `android:required="true"` に設定することで、カメラハードウェアが搭載されていない特殊な端末（一部のスマートTVや産業用機器など）に対して、
-      Google Playストア上で「非対応アプリ」として検索・インストールを自動ブロックします
+      Google Playストア上で「非対応アプリ」として検索・インストールを自動ブロックします。
     -->
     <uses-feature
         android:name="android.hardware.camera"
